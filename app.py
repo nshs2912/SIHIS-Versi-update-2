@@ -77,7 +77,7 @@ def risk_summary(risk):
     return pd.DataFrame(rows)
 
 # ==============================================================================
-# PILAR 1: EXPERT VOICE NARRATIVES (Epidemiologist, Statistician, Spatial Analyst)
+# PILAR 1: EXPERT VOICE NARRATIVES (Rigorous, Cautious, Scientifically Accurate)
 # ==============================================================================
 
 def descriptive_narrative(result, label):
@@ -86,7 +86,7 @@ def descriptive_narrative(result, label):
     deaths = int(ov.get('deaths', 0) or 0)
     cfr = (deaths / total * 100) if total > 0 else 0.0
     
-    parts = [f"Beban penyakit di **{label}** mencatat **{total:,} morbiditas** dan **{deaths:,} mortalitas** (CFR: **{cfr:.2f}%**)."]
+    parts = [f"Beban penyakit di **{label}** mencatat **{total:,} morbiditas** dan **{deaths:,} mortalitas** (CFR kasar: **{cfr:.2f}%**)."]
     
     top = result.get('top10_diseases') if isinstance(result, dict) else None
     if isinstance(top, pd.DataFrame) and not top.empty:
@@ -94,73 +94,82 @@ def descriptive_narrative(result, label):
         disease_name = r.get('Nama Penyakit', '-')
         cases = int(r.get('Jumlah Kasus', 0))
         cfr_top = float(r.get('CFR', 0))
-        parts.append(f"Dominasi kasus oleh **{disease_name}** ({cases:,} kasus, CFR: {cfr_top:.2f}%) mengindikasikan tekanan signifikan pada sistem kesehatan. ")
+        parts.append(f"Dominasi kasus oleh **{disease_name}** ({cases:,} kasus). ")
         if cfr_top > 5.0:
-            parts.append("CFR yang melebihi 5% merupakan *red flag* yang mengindikasikan tingkat keganasan tinggi atau adanya keterlambatan dalam deteksi dini dan tatalaksana klinis.")
+            # Koreksi: CFR > 5% bukan otomatis keganasan tinggi, bisa karena bias pelaporan, denominator, atau struktur umur.
+            parts.append(f"CFR sebesar {cfr_top:.2f}% merupakan sinyal yang memerlukan investigasi lebih lanjut. Angka ini dapat mencerminkan keganasan klinis, namun juga sangat rentan terhadap bias pelaporan (underreporting kasus ringan), kelengkapan data outcome, atau struktur umur populasi yang rentan. Validasi terhadap denominator populasi berisiko sangat diperlukan.")
             
     if isinstance(result.get('province_distribution'), pd.DataFrame) and not result['province_distribution'].empty:
         p = result['province_distribution'].iloc[0]
-        parts.append(f"Secara geografis, konsentrasi kasus tertinggi terpusat di **{p.get('Provinsi', '-')}** ({int(p.get('Jumlah Kasus', 0)):,} kasus).")
+        parts.append(f"Secara geografis, konsentrasi kasus tertinggi tercatat di **{p.get('Provinsi', '-')}** ({int(p.get('Jumlah Kasus', 0)):,} kasus).")
         
-    parts.append("Temuan deskriptif ini merupakan sinyal awal. Interpretasi risiko yang valid memerlukan denominator populasi berisiko untuk menghitung *Attack Rate* dan penyesuaian terhadap potensi bias pelaporan.")
+    parts.append("Temuan ini bersifat deskriptif. Interpretasi risiko yang valid memerlukan denominator populasi berisiko untuk menghitung *Attack Rate* atau *Incidence Rate*, bukan hanya mengandalkan jumlah kasus absolut.")
     return ' '.join(parts)
 
 def ews_narrative(ews, rt):
     if not isinstance(ews, dict):
-        return "Data deret waktu belum memenuhi syarat minimum untuk kalkulasi Early Warning Score yang valid."
+        return "Data deret waktu belum memenuhi syarat minimum (panjang seri dan kelengkapan) untuk kalkulasi Early Warning Score yang valid."
     
     score = ews.get('ews_score', ews.get('score', ews.get('EWS', 0)))
     trend = ews.get('trend_pct', ews.get('trend', 0))
     rt_val = float(rt.get('rt_recent', 1.0)) if isinstance(rt, dict) else 1.0
+    rt_ci = rt.get('rt_ci', '') # Asumsi ada CI, jika tidak, narasi akan mengingatkan
     
     text = "Sistem Peringatan Dini (EWS) mendeteksi anomali temporal dalam dinamika kasus. "
     if trend > 20:
-        text += f"Terjadi akselerasi kasus yang tajam sebesar **{trend:.1f}%** dalam 7 hari terakhir. "
+        text += f"Terjadi akselerasi kasus sebesar **{trend:.1f}%** dalam 7 hari terakhir. "
     elif trend > 0:
         text += f"Tren kasus menunjukkan peningkatan moderat (**{trend:.1f}%**). "
     else:
         text += "Tren kasus menunjukkan penurunan atau stabilisasi. "
         
+    # Koreksi: Rt > 1 bukan bukti tunggal, harus melihat estimator dan uncertainty
+    text += f"Estimasi Rₜ terkini berada di angka **{rt_val:.2f}**. "
     if rt_val > 1.0:
-        text += f"Nilai Rₜ (**{rt_val:.2f} > 1**) mengonfirmasi bahwa transmisi sedang meluas (ekspansif). Rekomendasi: Aktivasi respons cepat (*rapid response team*), perkuat surveilans kontak erat, dan siapkan eskalasi logistik klinis."
-    elif rt_val == 1.0:
-        text += "Rₜ berada di ambang batas (1.0), menunjukkan transmisi yang stabil namun rentan terhadap perubahan mobilitas. Pertahankan intervensi saat ini."
-    else:
-        text += f"Rₜ (**{rt_val:.2f} < 1**) menunjukkan transmisi sedang menyusut. Pertahankan intervensi hingga Rₜ < 1 secara konsisten selama minimal dua masa inkubasi."
+        text += "Nilai Rₜ > 1 mengindikasikan *potensi* pertumbuhan kasus. Namun, ini **bukan bukti tunggal** bahwa transmisi sedang meluas secara pasti. Interpretasi Rₜ wajib mempertimbangkan interval kepercayaan (uncertainty), metode estimator yang digunakan (misal: Cori atau Wallinga-Teunis), serta potensi *reporting delay* yang dapat mendistorsi estimasi terkini."
+    elif rt_val < 1.0:
+        text += "Nilai Rₜ < 1 mengindikasikan tren penurunan, namun tetap harus dievaluasi bersama interval kepercayaannya untuk memastikan penurunan tersebut signifikan secara statistik."
         
-    text += " *Catatan:* EWS adalah sinyal probabilistik, bukan konfirmasi KLB. Verifikasi lapangan dan kelengkapan data historis tetap menjadi standar emas."
+    text += " *Catatan:* EWS dan Rₜ adalah indikator kewaspadaan dini probabilistik. Konfirmasi KLB memerlukan verifikasi lapangan, definisi kasus yang konsisten, dan analisis baseline historis."
     return text
 
 def spatial_narrative(spatial):
     if not isinstance(spatial, pd.DataFrame) or spatial.empty:
-        return "Data koordinat tidak memadai untuk pemodelan kerapatan spasial yang valid."
+        return "Data koordinat tidak memadai atau tidak valid untuk pemodelan kerapatan spasial."
     
     counts = spatial['Cluster'].value_counts() if 'Cluster' in spatial else pd.Series(dtype=int)
     clusters = counts.drop(index=-1, errors='ignore')
     noise = int(counts.get(-1, 0))
     
-    text = f"Pemodelan kerapatan spasial (DBSCAN) mengidentifikasi **{len(clusters)} zona konsentrasi kasus (hotspot)** dan **{noise} titik dispersi (noise)**. "
+    # Koreksi: DBSCAN adalah density-based clustering, BUKAN uji autokorelasi spasial (seperti Moran's I)
+    text = f"Algoritma DBSCAN mengidentifikasi **{len(clusters)} area dengan kepadatan kasus tinggi (cluster)** dan **{noise} titik yang tersebar (noise/outlier)**. "
+    text += "**Penting:** DBSCAN hanyalah algoritma pengelompokan berbasis kepadatan (*density-based*), **bukan** uji statistik autokorelasi spasial (seperti Moran's I atau Getis-Ord Gi*). "
     
     if len(clusters) > 0:
-        text += "Keberadaan klaster yang padat secara spasial mengindikasikan adanya autokorelasi spasial positif. Pola ini sangat sugestif terhadap transmisi lokal (*person-to-person*) yang intens, atau paparan terhadap sumber infeksi bersama (*common source*) di wilayah tersebut. "
-        text += "**Rekomendasi:** Investigasi epidemiologi lapangan (*contact tracing* dan *environmental sampling*) harus diprioritaskan pada radius episentrum klaster untuk memetakan faktor risiko lingkungan."
+        text += "Keberadaan cluster kepadatan tinggi menghasilkan hipotesis tentang kemungkinan transmisi lokal (*person-to-person*) atau paparan terhadap sumber infeksi bersama (*common source point/continuous source*) di wilayah tersebut. "
+        text += "**Rekomendasi:** Hipotesis ini harus diverifikasi melalui investigasi epidemiologi lapangan (wawancara, *contact tracing*, dan pengambilan sampel lingkungan) untuk membedakan antara klaster transmisi aktif vs. klaster akibat pelaporan yang terkonsentrasi di satu fasilitas kesehatan."
     else:
-        text += "Kasus tersebar secara acak (pola dispersi). Hal ini dapat mengindikasikan transmisi yang sudah meluas secara komunitas (*community transmission*) atau paparan lingkungan yang homogen."
+        text += "Kasus tersebar secara acak (pola dispersi). Hal ini dapat mengindikasikan transmisi komunitas yang luas (*community transmission*) atau paparan lingkungan yang homogen, namun juga bisa merupakan artefak dari ketidakakuratan data koordinat."
     return text
 
 def risk_narrative(risk):
     s = risk_summary(risk)
     if s.empty:
-        return "Model statistik belum dapat menghasilkan estimasi risiko yang valid pada subset data ini (kemungkinan karena ukuran sampel kecil atau variasi data yang rendah)."
+        return "Model statistik belum dapat menghasilkan estimasi yang valid pada subset data ini (kemungkinan karena ukuran sampel kecil, variasi data yang rendah, atau *zero-cell count*)."
     
     sig = s[s['p-value'].notna() & (s['p-value'] < .05)]
     if sig.empty:
-        return "Secara statistik, belum ditemukan variabel yang memiliki asosiasi signifikan dengan outcome pada ambang α=0.05. Namun, ketiadaan signifikansi statistik tidak boleh diinterpretasikan sebagai ketiadaan risiko biologis/epidemiologis."
+        return "Pada ambang signifikansi α=0.05, belum ditemukan variabel dengan asosiasi statistik yang signifikan terhadap outcome. Namun, ketiadaan signifikansi statistik (bisa akibat *low statistical power* atau ukuran sampel kecil) tidak boleh diinterpretasikan sebagai bukti ketiadaan risiko biologis/epidemiologis."
     
     factors = ', '.join(sig['Faktor'].astype(str))
-    text = f"Analisis bivariat/multivariat mengidentifikasi sinyal asosiasi statistik yang signifikan (p<0.05) pada variabel: **{factors}**. "
-    text += "**Peringatan Metodologis:** Asosiasi statistik tidak ekuivalen dengan hubungan kausal. Estimasi Odds Ratio (OR) dan Adjusted OR harus dievaluasi bersama Interval Kepercayaan 95% (CI 95%) untuk menilai presisi estimasi. "
-    text += "Interpretasi akhir wajib mempertimbangkan potensi *confounding* (variabel perancu), bias seleksi, dan kekuatan statistik (*statistical power*) sebelum merumuskan kebijakan intervensi berbasis risiko."
+    # Koreksi: p < 0.05 saja tidak cukup. Perlu OR, CI 95%, arah asosiasi, dan confounding.
+    text = f"Analisis bivariat menunjukkan adanya asosiasi statistik (p < 0.05) pada variabel: **{factors}**. "
+    text += "**Peringatan Interpretasi:** Nilai p < 0.05 **saja tidak cukup** untuk menyimpulkan variabel tersebut sebagai 'faktor risiko'. Evaluasi wajib mencakup: "
+    text += "1) Besaran efek dan arah asosiasi (Odds Ratio / Adjusted OR), "
+    text += "2) Presisi estimasi (Interval Kepercayaan 95%), "
+    text += "3) Kontrol terhadap variabel perancu (*confounding*) dalam model multivariat, dan "
+    text += "4) Pertimbangan bias seleksi atau bias informasi dalam pengumpulan data. "
+    text += "Asosiasi statistik tidak ekuivalen dengan hubungan kausal."
     return text
 
 def render_risk_factors(risk):
@@ -174,9 +183,13 @@ def render_risk_factors(risk):
         c1.metric('Chi-square', _fmt_number(chi))
         c2.metric('p-value', _fmt_number(p))
         if p is not None and pd.notna(p):
-            if float(p) < .05: st.info('Terdapat asosiasi statistik pada α=0,05. Besar dan arah asosiasi tetap harus dinilai dari OR dan CI 95%.')
-            else: st.info('Belum terdapat bukti asosiasi statistik pada α=0,05. Ini bukan bukti bahwa faktor tersebut tidak berpengaruh.')
-        else: st.warning('Uji Chi-square tidak dapat dihitung secara valid pada tabel ini; periksa kategori kosong, variasi outcome, dan kecukupan frekuensi sel.')
+            if float(p) < .05: 
+                st.info('Terdapat asosiasi statistik (p<0,05). Besaran, arah, dan signifikansi klinis tetap harus dinilai dari Odds Ratio (OR) dan Interval Kepercayaan 95% (CI 95%).')
+            else: 
+                st.info('Tidak ada bukti asosiasi statistik pada α=0,05. Ini bukan bukti bahwa faktor tersebut tidak berpengaruh (pertimbangkan power analisis).')
+        else: 
+            st.warning('Uji Chi-square tidak dapat dihitung secara valid. Kemungkinan adanya sel dengan frekuensi nol (*zero-cell count*) atau variasi yang terlalu rendah. Pada kondisi data yang *sparse*, metode *Firth’s penalized likelihood* atau *Exact Logistic Regression* direkomendasikan sebagai fallback.')
+        
         ct = obj.get('crosstab')
         if isinstance(ct, pd.DataFrame): st.markdown('**Tabel silang**'); st.dataframe(ct, use_container_width=True)
         ors = obj.get('or_by_group')
@@ -187,8 +200,8 @@ def curve_narrative(curve, disease):
         return "Morfologi kurva epidemik belum dapat diklasifikasikan karena data temporal tidak memadai."
     label, short, meaning, implication = curve[:4]
     text = f"Morfologi kurva epidemik diklasifikasikan sebagai **{label}**. {short} "
-    text += f"**Implikasi Epidemiologis:** {implication} "
-    text += f"Pada kasus **{disease}**, bentuk kurva tidak boleh digunakan secara isolasi untuk menyimpulkan mekanisme transmisi tanpa mempertimbangkan masa inkubasi, periode serial, dan potensi *underreporting* pada fase awal wabah."
+    text += f"**Implikasi:** {implication} "
+    text += f"Pada kasus **{disease}**, bentuk kurva tidak boleh digunakan secara isolasi untuk menyimpulkan mekanisme transmisi. Interpretasi harus selalu mempertimbangkan masa inkubasi penyakit, periode serial, dan potensi *underreporting* atau *backlog* pelaporan pada fase awal wabah."
     return text
 
 def forecast_render(fc):
@@ -201,7 +214,7 @@ def forecast_render(fc):
     })
     model = fc.get('model', 'Holt-Winters')
     trend = fc.get('trend', '-')
-    show_resume(f"Model peramalan **{model}** memproyeksikan tren **{trend}**. Interval kepercayaan 95% (Lower/Upper) merepresentasikan ketidakpastian inheren dalam proyeksi temporal, bukan batas absolut kasus yang akan terjadi.")
+    show_resume(f"Model peramalan **{model}** memproyeksikan tren **{trend}**. Interval kepercayaan 95% (Lower/Upper) merepresentasikan ketidakpastian inheren dalam proyeksi temporal. Forecast adalah estimasi probabilistik, bukan jumlah kasus yang pasti terjadi.")
     if not table.empty:
         st.line_chart(table.set_index('Tanggal')[['Forecast', 'Lower 95%', 'Upper 95%']])
         st.dataframe(table, use_container_width=True, hide_index=True)
@@ -217,16 +230,16 @@ def vulnerable_narrative(v):
     total = int(top.get('Total', 0))
     cfr = float(top.get('CFR (%)', 0))
     
-    text = f"Stratifikasi risiko multidimensi (Umur × Pekerjaan × Komorbid) mengisolasi profil populasi paling rentan. "
+    text = f"Stratifikasi risiko multidimensi (Umur × Pekerjaan × Komorbid) mengisolasi profil populasi dengan beban tertinggi. "
     text += f"Profil teratas (**{age} × {job} × {comorb}**) menunjukkan CFR **{cfr:.2f}%** dengan n={total}. "
-    text += "Angka ini menyoroti ketimpangan kerentanan biologis dan sosial. Intervensi harus ditargetkan secara presisi pada strata ini, dengan catatan bahwa strata berpopulasi kecil rentan terhadap varians statistik yang tinggi."
+    text += "Angka ini menyoroti ketimpangan kerentanan. Namun, interpretasi pada strata dengan populasi kecil (n kecil) harus dilakukan dengan hati-hati karena rentan terhadap varians statistik yang tinggi dan estimasi CFR yang tidak stabil."
     return text
 
 def ml_narrative(ml):
     if not isinstance(ml, dict) or not ml:
         return "Layer Machine Learning belum dijalankan atau data tidak memadai untuk inferensi."
-    text = "Output Machine Learning berfungsi sebagai *Clinical/Epidemiological Decision Support System* (CDSS), bukan alat diagnostik atau prediktif yang definitif. "
-    text += "Validitas model ini bergantung pada asumsi stasioneritas data. Sebelum implementasi operasional, model wajib melalui evaluasi ketat: validasi temporal/eksternal, analisis kalibrasi, deteksi *data drift*, audit bias algoritmik, dan harus selalu disertai *human-in-the-loop* oversight oleh tenaga kesehatan berwenang."
+    text = "Output Machine Learning berfungsi sebagai *Decision Support System* (DSS), bukan alat diagnostik atau prediktif yang definitif. "
+    text += "Validitas model ini bergantung pada asumsi stasioneritas data. Sebelum implementasi operasional, model wajib melalui evaluasi ketat: validasi temporal/eksternal, analisis kalibrasi, deteksi *data drift*, audit bias algoritmik, dan harus selalu disertai *human-in-the-loop oversight* oleh tenaga kesehatan berwenang."
     return text
 
 # ==============================================================================
