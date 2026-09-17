@@ -106,31 +106,50 @@ def descriptive_narrative(result, label):
     parts.append("Temuan ini bersifat deskriptif. Interpretasi risiko yang valid memerlukan denominator populasi berisiko untuk menghitung *Attack Rate* atau *Incidence Rate*, bukan hanya mengandalkan jumlah kasus absolut.")
     return ' '.join(parts)
 
-def ews_narrative(ews, rt):
+def ews_narrative(ews, rt, mortality_trend=None):
+    """
+    Narasi Early Warning System (EWS) yang mengacu pada Permenkes No. 1 Tahun 2026 
+    tentang KLB, Wabah, dan Krisis Kesehatan.
+    """
     if not isinstance(ews, dict):
-        return "Data deret waktu belum memenuhi syarat minimum (panjang seri dan kelengkapan) untuk kalkulasi Early Warning Score yang valid."
+        return "Data deret waktu belum memenuhi syarat minimum (panjang seri dan kelengkapan) untuk evaluasi kriteria KLB/Wabah."
     
     score = ews.get('ews_score', ews.get('score', ews.get('EWS', 0)))
     trend = ews.get('trend_pct', ews.get('trend', 0))
-    rt_val = float(rt.get('rt_recent', 1.0)) if isinstance(rt, dict) else 1.0
-    rt_ci = rt.get('rt_ci', '') # Asumsi ada CI, jika tidak, narasi akan mengingatkan
+    rt_val = float(ews.get('rt_recent', 1.0)) if isinstance(ews.get('rt_recent'), (int, float)) else 1.0
     
-    text = "Sistem Peringatan Dini (EWS) mendeteksi anomali temporal dalam dinamika kasus. "
-    if trend > 20:
-        text += f"Terjadi akselerasi kasus sebesar **{trend:.1f}%** dalam 7 hari terakhir. "
-    elif trend > 0:
-        text += f"Tren kasus menunjukkan peningkatan moderat (**{trend:.1f}%**). "
+    text = "Sistem mendeteksi anomali temporal yang dievaluasi berdasarkan indikator kewaspadaan dini. "
+    
+    # 1. Evaluasi Sinyal KLB
+    criteria_met = []
+    if trend >= 100:
+        criteria_met.append("peningkatan kasus ≥2 kali lipat dibanding periode sebelumnya")
+    if trend > 0:
+        criteria_met.append("tren peningkatan kasus berturut-turut")
+        
+    if criteria_met:
+        text += f"Sinyal sistem menunjukkan potensi pemenuhan kriteria **Kejadian Luar Biasa (KLB)**, yaitu: {', '.join(criteria_met)}. "
     else:
-        text += "Tren kasus menunjukkan penurunan atau stabilisasi. "
+        text += "Saat ini, tren kasus belum menunjukkan pola yang secara otomatis memenuhi ambang batas kriteria KLB berdasarkan data yang tersedia. "
+
+    # 2. Evaluasi Sinyal Eskalasi menuju Wabah (Berdasarkan Permenkes No. 1 Tahun 2026)
+    escalation_warning = False
+    if rt_val > 1.2 and trend > 50: # Ambang batas heuristik untuk "menyebar cepat"
+        escalation_warning = True
         
-    # Koreksi: Rt > 1 bukan bukti tunggal, harus melihat estimator dan uncertainty
-    text += f"Estimasi Rₜ terkini berada di angka **{rt_val:.2f}**. "
-    if rt_val > 1.0:
-        text += "Nilai Rₜ > 1 mengindikasikan *potensi* pertumbuhan kasus. Namun, ini **bukan bukti tunggal** bahwa transmisi sedang meluas secara pasti. Interpretasi Rₜ wajib mempertimbangkan interval kepercayaan (uncertainty), metode estimator yang digunakan (misal: Cori atau Wallinga-Teunis), serta potensi *reporting delay* yang dapat mendistorsi estimasi terkini."
-    elif rt_val < 1.0:
-        text += "Nilai Rₜ < 1 mengindikasikan tren penurunan, namun tetap harus dievaluasi bersama interval kepercayaannya untuk memastikan penurunan tersebut signifikan secara statistik."
-        
-    text += " *Catatan:* EWS dan Rₜ adalah indikator kewaspadaan dini probabilistik. Konfirmasi KLB memerlukan verifikasi lapangan, definisi kasus yang konsisten, dan analisis baseline historis."
+    if escalation_warning:
+        text += "⚠️ **PERINGATAN ESKALASI**: Kombinasi antara akselerasi kasus yang tinggi dan nilai Rₜ yang konsisten di atas 1 mengindikasikan pola penyebaran yang cepat dan meluas. Secara epidemiologis, ini merupakan **sinyal peringatan dini eskalasi KLB menuju status Wabah**."
+    else:
+        text += f"Estimasi Rₜ terkini berada di angka **{rt_val:.2f}**. "
+        if rt_val > 1.0:
+            text += "Nilai Rₜ > 1 mengindikasikan *potensi* pertumbuhan kasus, namun belum tentu memenuhi kriteria eskalasi cepat yang disyaratkan untuk status Wabah. "
+
+    # 3. Penegasan Batasan Metodologis dan Kewenangan Hukum (Rigor)
+    text += "\n\n**Penting (Batasan Sistem & Regulasi):** "
+    text += "1. Output ini adalah sinyal probabilistik berbasis data surveilans. Penetapan status **KLB** maupun **Wabah** tidak dapat dilakukan secara otomatis oleh algoritma. "
+    text += "2. Berdasarkan **Permenkes Nomor 1 Tahun 2026**, penetapan status **'Wabah'** merupakan **kewenangan eksklusif Menteri Kesehatan** setelah memverifikasi eskalasi jumlah kasus/kematian yang signifikan dan kecepatan penyebaran di masyarakat. "
+    text += "3. Sinyal ini wajib segera ditindaklanjuti dengan verifikasi lapangan, konfirmasi diagnosis, dan pelaporan berjenjang ke Dinas Kesehatan setempat untuk evaluasi penetapan status resmi."
+    
     return text
 
 def spatial_narrative(spatial):
