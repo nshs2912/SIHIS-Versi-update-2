@@ -25,10 +25,15 @@ st.caption(f"🕒 Waktu Sistem: {get_wib_time()['full']}")
 engine = SIHISIntelligenceEngine()
 
 # ==============================================================================
-# CUSTOM NAVIGATION MENU (HORIZONTAL, DI ATAS)
+# CUSTOM NAVIGATION MENU (HORIZONTAL)
 # ==============================================================================
 if 'active_tab' not in st.session_state:
     st.session_state.active_tab = 'Trias Epidemiologi'
+
+# Handle tab switching via query params
+query_params = st.query_params
+if 'tab' in query_params:
+    st.session_state.active_tab = query_params['tab']
 
 nav_items = [
     ('📊 Trias Epidemiologi (Detail)', 'Trias Epidemiologi'),
@@ -38,7 +43,7 @@ nav_items = [
     ('🗺️ Peta Spasial & AI DBSCAN', 'Peta Spasial'),
 ]
 
-# Render navigation menu dengan HTML/CSS
+# Render navigation menu
 nav_html = '<div style="display:flex;gap:10px;margin:20px 0;flex-wrap:wrap;">'
 for label, tab_name in nav_items:
     is_active = st.session_state.active_tab == tab_name
@@ -53,11 +58,6 @@ for label, tab_name in nav_items:
 nav_html += '</div>'
 
 st.markdown(nav_html, unsafe_allow_html=True)
-
-# Handle tab switching via query params
-query_params = st.query_params
-if 'tab' in query_params:
-    st.session_state.active_tab = query_params['tab']
 
 # ==============================================================================
 # HELPER FUNCTIONS
@@ -133,7 +133,7 @@ def risk_summary(risk):
     return pd.DataFrame(rows)
 
 # ==============================================================================
-# NARRATIVE FUNCTIONS (Expert Voice)
+# NARRATIVE FUNCTIONS
 # ==============================================================================
 def descriptive_narrative(result, label):
     ov = result.get('overview', {}) if isinstance(result, dict) else {}
@@ -331,7 +331,7 @@ scope = QueryScope(
 )
 
 # ==============================================================================
-# MAIN CONTENT BASED ON ACTIVE TAB
+# MAIN CONTENT
 # ==============================================================================
 if sel_disease == 'Semua Penyakit':
     result = engine.descriptive(dfk)
